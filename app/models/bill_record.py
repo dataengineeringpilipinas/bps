@@ -8,7 +8,7 @@ class BillRecord(SQLModel, table=True):
     __tablename__ = "bill_records"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    txn_datetime: datetime = Field(default_factory=datetime.utcnow, index=True, nullable=False)
+    txn_datetime: datetime = Field(default_factory=datetime.now, index=True, nullable=False)
     txn_date: date = Field(index=True)
     account: str = Field(max_length=64, index=True)
     biller: str = Field(max_length=120, index=True)
@@ -16,7 +16,9 @@ class BillRecord(SQLModel, table=True):
     cp_number: str = Field(max_length=32)
 
     bill_amt: float = Field(default=0)
+    # Legacy storage column kept for backward DB compatibility.
     amt2: float = Field(default=0)
+    late_charge: float = Field(default=0)
     charge: float = Field(default=0)
     total: float = Field(default=0)
     cash: float = Field(default=0)
@@ -25,6 +27,11 @@ class BillRecord(SQLModel, table=True):
     due_date: Optional[date] = Field(default=None, index=True)
     notes: Optional[str] = Field(default=None, max_length=500)
     reference: Optional[str] = Field(default=None, max_length=120)
+    confirmation_reference: Optional[str] = Field(default=None, max_length=120)
+    payment_reference: Optional[str] = Field(default=None, max_length=120)
+    payment_method: Optional[str] = Field(default=None, max_length=32)
+    payment_channel: Optional[str] = Field(default=None, max_length=32, index=True)
+    processed_by_user_id: Optional[int] = Field(default=None, index=True)
 
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)

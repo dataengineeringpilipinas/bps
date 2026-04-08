@@ -1,27 +1,30 @@
-# BPAY
+# BPS
 
-Admin dashboard for managing billing records from a Google Sheet export.
+Operations-first billing and payment admin app for small businesses.
 
-## Features
-- SQLite-backed records
-- Signup/Signin with phone + 4-digit PIN
-- OTP-based signup verification and PIN reset flow
-- PIN policy + signin lockout controls + auth event logging
-- Session login with role-based routing (`admin`, `encoder`, or `customer`)
-- Server-side DataTables endpoint (search, sort, pagination)
-- Filters: biller, transaction date range, due status
-- CRUD: create, edit, delete records
-- Transaction audit log for record state changes (create, update, delete, CSV import) with admin visibility
-- CSV import endpoint for bulk loading sheet exports
-- Duplicate detection by `txn_date + account + biller + amount` (create, update, import)
-- Auto-generated unique reference code when missing
-- Validation guards for due date and amount before save
-- Phone validation: exactly 11 digits
-- CP number validation: exactly 11 digits when provided
-- Text normalization: form text values are standardized to uppercase before persistence
-- Amount display formatting: comma separators with 2 decimal places on key views
+## Live App
+- Production URL: [https://bps.apps.vibecamp.ph](https://bps.apps.vibecamp.ph)
 
-## Run
+## What BPS Does
+BPS helps teams manage bill records end-to-end: encode customer bills, process settlement updates, track cash/online channels, and run daily reconciliation with audit-ready history.
+
+## Core Capabilities
+- **Auth and roles**: phone + 4-digit PIN, OTP signup verification, PIN reset, lockout policy, auth logs, role-based routing (`admin`, `encoder`, `customer`)
+- **Record operations**: create/edit/delete bill records, searchable/paginated table, due-status/date filters, duplicate prevention (`txn_date + account + biller + amount`)
+- **Payment tracking**: separate `confirmation_reference` and `payment_reference`, explicit `payment_channel`, and operator tracking through `processed_by_user_id`
+- **CSV import (curated + raw)**: import into `bill_records` with operational defaults and preserve immutable source rows in `bill_record_import_raw` with `import_batch_id`
+- **Reconciliation and reports**: EOD reconciliation with optional cash-on-hand variance, per-user reconciliation totals, and daily/monthly/yearly report summaries
+- **Admin visibility tools**: on-demand transaction audit log, read-only Database View with auto-load + row search, and KPI-focused dashboards
+- **Biller rules and receipts**: popup biller-rule maintenance, per-field receipt visibility toggles, and receipt footer controls
+- **Customer dashboard**: phone-scoped bill visibility with account/biller filters and automatic `customer_accounts.user_id` linking on auth success
+
+## Payment Method and Channel Rules
+- Customer payment mode options: `CASH`, `GCASH`, `MAYA`, `BDO`, `BPI`
+- Admin settlement channel options: `CASH`, `GCASH`, `MAYA`, `BAYAD`, `BPICC`, `BPI`
+- `payment_method` and `payment_channel` are intentionally independent fields for operational auditability
+
+## Local Development
+### Run (Linux/macOS)
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -29,7 +32,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Open: `http://127.0.0.1:8000/auth/signin`
+Open locally: `http://127.0.0.1:8000/auth/signin`
 
 ### Windows (PowerShell) quickstart
 ```powershell
@@ -42,9 +45,9 @@ Open: `http://127.0.0.1:8000/auth/signin`
 ./scripts/dev.ps1 check
 ```
 
+## Environment Notes
 ### OTP development mode
-Signup now uses OTP verification before account creation.
-By default, OTP runs in local stub mode and logs the code in server output:
+Signup uses OTP verification before account creation. By default, OTP runs in local stub mode and logs OTP codes in server output.
 
 ```bash
 export OTP_PROVIDER=local
@@ -52,37 +55,37 @@ export OTP_TTL_SECONDS=300
 export PIN_MAX_FAILED_ATTEMPTS=5
 export PIN_LOCKOUT_MINUTES=15
 export PIN_WEAK_LIST=0000,1111,1234,4321
+export ROUTING_URGENT_WINDOW_DAYS=3
+export COMMS_PROVIDER=local
+export COMMS_DEFAULT_CHANNEL=sms
 ```
 
-PIN recovery flow is available from Sign In via `Forgot PIN` (`/auth/pin/reset`).
+PIN recovery is available at `Forgot PIN` (`/auth/pin/reset`).
 
-### Admin phone configuration
-Set admin phone numbers (comma-separated) so those users land on admin dashboard after login:
+### Role phone configuration
+Set admin phones (comma-separated):
 
 ```bash
 export ADMIN_PHONES=09171234567,09179998888
 ```
 
-If not listed, a signed-up user is treated as `customer`.
-
-### Encoder phone configuration
-Set encoder phone numbers (comma-separated) so those users land on form-only page after login:
+Set encoder phones (comma-separated):
 
 ```bash
 export ENCODER_PHONES=09175556666,09174443333
 ```
 
-`encoder` can access data entry form and create records, but not admin tables.
+If a signed-up phone is not configured as admin/encoder, it is treated as `customer`.
 
-## CSV format
-Headers supported (case-sensitive):
+## CSV Import Format
+Supported headers (case-sensitive):
 - `DATE` or `DATE/TIME`
 - `ACCOUNT`
 - `BILLER`
 - `NAME`
 - `NUMBER` or `CP NUM`
 - `AMT` or `BILL AMT`
-- `AMT2` or `LATE CHARGE`
+- `LATE_CHARGE`, `LATE CHARGE`, or legacy `AMT2`
 - `CHARGE` or `SERVICE CHARGE`
 - `TOTAL`
 - `CASH`
@@ -90,16 +93,24 @@ Headers supported (case-sensitive):
 - `DUE DATE`
 - `NOTES`
 - `REFERENCE`
+- `confirmation_reference` (optional)
+- `payment_reference` (optional)
+- `payment_method` (optional)
+- `payment_channel` (optional)
 
-A masked sample is included: `sample_masked_records.csv`
+Import behavior:
+- If `payment_reference` is blank and `REFERENCE` exists, `payment_reference` falls back to `REFERENCE`
+- Import sets operational defaults for curated records (`payment_method=CASH`, `payment_channel=CASH`, and missing references fallback to `reference`)
+- Every row is also persisted to immutable `bill_record_import_raw` with `import_batch_id` for traceability
 
-## Workflow
-Use these files as your working system:
-- `docs/WORKFLOW.md` for the development loop and definition of done
-- `docs/BACKLOG.md` for `NOW / NEXT / LATER` task planning
-- `docs/DECISIONS.md` for architecture/product tradeoff history
+Sample files:
+- `import_bill_records_starter.csv`
+- `sample_biller_rules.csv`
 
-Recommended cadence:
-1. Pick one `NOW` item and create a focused branch.
-2. Build and verify with `./scripts/dev.ps1 check`.
-3. Update backlog + decisions, then commit with the task ID.
+`sample_biller_rules.csv` headers:
+- `BILLER`, `SERVICE_CHARGE`, `CASH`, `GCASH`, `MAYA`, `BAYAD`, `BPI CREDIT CARD`, `BPI`, `LATE_CHARGE`, `ACCOUNT_DIGITS`, `IS_ACTIVE`
+
+## Project Docs
+- `docs/WORKFLOW.md` - development loop and definition of done
+- `docs/BACKLOG.md` - current priority queue (`NOW/NEXT/LATER/DONE`)
+- `docs/DECISIONS.md` - architecture and product tradeoff history

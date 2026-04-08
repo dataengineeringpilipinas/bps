@@ -5,6 +5,9 @@
 {% block topbar_subtitle %}Manage imported billing rows with fast table tools.{% endblock %}
 {% block topbar_actions %}
 <a href="/entry/form" class="btn btn-primary">Add Record</a>
+<a href="/admin/reconciliation" class="btn btn-secondary">Reconciliation</a>
+<a href="/admin/reports" class="btn btn-secondary">Reports</a>
+<a href="/admin/database" class="btn btn-secondary">Database</a>
 <a href="/admin/settings" class="btn btn-secondary">Admin Settings</a>
 <button type="button" class="btn btn-secondary" id="openUsersBtn">Users</button>
 <form method="post" action="/auth/logout" class="inline-action">
@@ -13,7 +16,27 @@
 {% endblock %}
 
 {% block content %}
-<section class="panel">
+<section class="kpi-strip" id="recordsKpiStrip">
+    <article class="kpi-card">
+        <p class="kpi-label">Visible Records</p>
+        <p class="kpi-value" id="kpiVisibleRecords">0</p>
+    </article>
+    <article class="kpi-card">
+        <p class="kpi-label">Processed</p>
+        <p class="kpi-value" id="kpiProcessedRecords">0</p>
+    </article>
+    <article class="kpi-card">
+        <p class="kpi-label">Pending</p>
+        <p class="kpi-value" id="kpiPendingRecords">0</p>
+    </article>
+    <article class="kpi-card">
+        <p class="kpi-label">Urgent Due</p>
+        <p class="kpi-value" id="kpiUrgentRecords">0</p>
+    </article>
+</section>
+<p class="status-text" id="kpiScopeLabel">Scope: Current month</p>
+
+<section class="panel panel-sticky">
     <div class="panel-head">
         <h2>Data Controls</h2>
     </div>
@@ -46,12 +69,14 @@
                 <option value="overdue">Overdue</option>
                 <option value="due_today">Due Today</option>
                 <option value="upcoming">Upcoming</option>
+                <option value="urgent">Urgent (Overdue + 3 days)</option>
                 <option value="no_due_date">No Due Date</option>
             </select>
         </div>
 
         <div class="field field-actions">
             <button type="button" class="btn btn-secondary" id="clearFiltersBtn">Clear Filters</button>
+            <button type="button" class="btn btn-primary" id="batchCashExportBtn">Mark Cash + Download</button>
         </div>
     </div>
 </section>
@@ -69,44 +94,32 @@
 </section>
 
 <section class="panel">
-    <table id="recordsTable" class="display" style="width:100%">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Txn Date/Time</th>
-                <th>Account</th>
-                <th>Biller</th>
-                <th>Name</th>
-                <th>Bill Amt</th>
-                <th>Due Date</th>
-                <th>Reference</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-    </table>
+    <div class="table-scroll records-table-wrap">
+        <table id="recordsTable" class="display" style="width:100%">
+            <thead>
+                <tr>
+                    <th class="align-center">ID</th>
+                    <th class="align-left">Txn Date/Time</th>
+                    <th>Account</th>
+                    <th>Biller</th>
+                    <th>Name</th>
+                    <th class="align-right">Bill Amt</th>
+                    <th class="align-center">Due Date</th>
+                    <th class="align-center">Status</th>
+                    <th>Reference</th>
+                    <th class="align-center">Actions</th>
+                </tr>
+            </thead>
+        </table>
+    </div>
 </section>
 
 <section class="panel">
     <div class="panel-head">
         <h2>Transaction Audit Log</h2>
     </div>
-    <div class="dialog-actions">
-        <button type="button" class="btn btn-secondary" id="refreshAuditBtn">Refresh Audit Log</button>
-    </div>
-    <table id="auditTable" class="display audit-grid" style="width:100%">
-        <thead>
-            <tr>
-                <th>When</th>
-                <th>Who</th>
-                <th>Role</th>
-                <th>Action</th>
-                <th>Channel</th>
-                <th>Status</th>
-                <th>Record ID</th>
-                <th>Detail</th>
-            </tr>
-        </thead>
-    </table>
+    <p class="status-text">Audit logs are available in Database View for on-demand inspection.</p>
+    <a href="/admin/database?table=record_audit_logs&limit=200" class="btn btn-secondary">Open Audit Logs</a>
 </section>
 
 <dialog id="usersDialog" class="record-dialog users-dialog">
@@ -117,18 +130,20 @@
             <button type="button" id="closeUsersBtn" class="btn btn-ghost">Close</button>
         </div>
     </div>
-    <table id="usersTable" class="display users-grid" style="width:100%">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>First Name</th>
-                <th>Last Name</th>
-                <th>Phone</th>
-                <th>Role</th>
-                <th>Created At</th>
-            </tr>
-        </thead>
-    </table>
+    <div class="table-scroll users-table-wrap">
+        <table id="usersTable" class="display users-grid" style="width:100%">
+            <thead>
+                <tr>
+                    <th class="align-center">ID</th>
+                    <th>First Name</th>
+                    <th>Last Name</th>
+                    <th class="align-center">Phone</th>
+                    <th class="align-center">Role</th>
+                    <th class="align-left">Created At</th>
+                </tr>
+            </thead>
+        </table>
+    </div>
 </dialog>
 
 <dialog id="addUserDialog" class="app-dialog">
@@ -181,8 +196,7 @@
                 <strong id="currentDateTime">-</strong>
             </div>
             <div class="meta-item">
-                <span class="meta-label">Computed Charge Rule</span>
-                <strong>Biller-based + tier logic</strong>
+                <label>Reference<input type="text" id="reference" placeholder="Auto-generate if blank"></label>
             </div>
         </div>
 
@@ -196,10 +210,33 @@
             <label>Bill Amount<input type="number" step="0.01" id="billAmt" value="0" min="0"></label>
             <label>Late Charge<input type="number" step="0.01" id="amt2" value="0" min="0"></label>
             <label>Service Charge<input type="number" step="0.01" id="charge" value="0" readonly></label>
+            <label>Customer Payment Mode
+                <select id="paymentMethod">
+                    <option value="">Select mode</option>
+                    <option value="CASH">Cash</option>
+                    <option value="GCASH">GCash</option>
+                    <option value="MAYA">Maya</option>
+                    <option value="BDO">BDO</option>
+                    <option value="BPI">BPI</option>
+                </select>
+            </label>
+            <label>Confirmation Reference<input type="text" id="confirmationReference" maxlength="120" placeholder="Confirmation ref from customer payment"></label>
+            <label>Amount<input type="number" step="0.01" id="cash" value="0" min="0"></label>
             <label class="amount-emphasis">Total<input type="number" step="0.01" id="total" value="0" readonly></label>
-            <label>Cash<input type="number" step="0.01" id="cash" value="0" min="0"></label>
             <label class="amount-emphasis">Change<input type="number" step="0.01" id="changeAmt" value="0" readonly></label>
-            <label>Reference<input type="text" id="reference" placeholder="Auto-generate if blank"></label>
+            <label>Settlement Channel
+                <select id="paymentChannel">
+                    <option value="">Select channel</option>
+                    <option value="CASH">Cash</option>
+                    <option value="GCASH">GCash</option>
+                    <option value="MAYA">Maya</option>
+                    <option value="BAYAD">Bayad</option>
+                    <option value="BPI_CC">BPICC</option>
+                    <option value="BPI">BPI</option>
+                </select>
+            </label>
+            <p class="status-text full">Customer Payment Mode = how customer paid BPAY. Settlement Channel = how you settled the biller payment.</p>
+            <label>Payment Reference<input type="text" id="paymentReference" maxlength="120" placeholder="Real ref from biller/channel"></label>
             <label class="full">Notes<textarea id="notes" rows="2"></textarea></label>
         </div>
 

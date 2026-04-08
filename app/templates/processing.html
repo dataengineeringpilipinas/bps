@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Reconciliation{% endblock %}
+{% block topbar_title %}Reconciliation{% endblock %}
+{% block topbar_subtitle %}Review EOD collected vs processed totals and cash variance.{% endblock %}
+{% block topbar_actions %}
+<a href="/admin/records" class="btn btn-secondary">Records</a>
+<a href="/admin/reports" class="btn btn-secondary">Reports</a>
+<a href="/admin/database" class="btn btn-secondary">Database</a>
+<a href="/admin/settings" class="btn btn-secondary">Admin Settings</a>
+<form method="post" action="/auth/logout" class="inline-action">
+    <button type="submit" class="btn btn-secondary">Logout</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="panel-head">
+        <h2>EOD Reconciliation Report</h2>
+    </div>
+    <div class="controls-grid">
+        <div class="field">
+            <label for="reportDate">Report date</label>
+            <input type="date" id="reportDate">
+        </div>
+        <div class="field">
+            <label for="cashOnHand">Cash on hand (optional)</label>
+            <input type="number" id="cashOnHand" min="0" step="0.01" placeholder="e.g. 12000.00">
+        </div>
+        <div class="field field-actions">
+            <button type="button" class="btn btn-primary" id="loadReportBtn">Load report</button>
+        </div>
+    </div>
+    <div id="reportBlock" class="is-hidden">
+        <table class="report-table">
+            <tbody>
+                <tr><th>Date</th><td id="reportDateDisp"></td></tr>
+                <tr><th>Collected</th><td id="reportCollected" class="amount-cell"></td></tr>
+                <tr><th>Processed</th><td id="reportProcessed" class="amount-cell"></td></tr>
+                <tr><th>Pending</th><td id="reportPending" class="amount-cell"></td></tr>
+                <tr><th>Total Charges</th><td id="reportTotalCharges" class="amount-cell"></td></tr>
+                <tr><th>Cash on hand</th><td id="reportCashOnHand" class="amount-cell"></td></tr>
+                <tr><th>Cash variance</th><td id="reportCashVariance" class="amount-cell"></td></tr>
+                <tr><th>Cash status</th><td id="reportCashFlag"></td></tr>
+                <tr><th>Record count</th><td id="reportRecordCount"></td></tr>
+                <tr><th>Processed count</th><td id="reportProcessedCount"></td></tr>
+                <tr><th>Status</th><td id="reportFlag"></td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="kpi-strip" id="processingKpiStrip">
+    <article class="kpi-card">
+        <p class="kpi-label">Collected</p>
+        <p class="kpi-value" id="kpiCollected">0.00</p>
+    </article>
+    <article class="kpi-card">
+        <p class="kpi-label">Processed</p>
+        <p class="kpi-value" id="kpiProcessed">0.00</p>
+    </article>
+    <article class="kpi-card">
+        <p class="kpi-label">Pending</p>
+        <p class="kpi-value" id="kpiPending">0.00</p>
+    </article>
+    <article class="kpi-card">
+        <p class="kpi-label">Cash Variance</p>
+        <p class="kpi-value" id="kpiCashVariance">—</p>
+    </article>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>Per-User Reconciliation</h2>
+    </div>
+    <div class="table-scroll">
+        <table id="perUserReconciliationTable" class="display users-grid" style="width:100%">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Record Count</th>
+                    <th>Processed Count</th>
+                    <th class="amount-cell">Collected</th>
+                    <th class="amount-cell">Processed</th>
+                    <th class="amount-cell per-user-col-pending">Pending</th>
+                    <th class="per-user-col-status">Status</th>
+                </tr>
+            </thead>
+            <tbody id="perUserReconciliationBody">
+                <tr><td colspan="7">Load report to view per-user reconciliation.</td></tr>
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th>Total</th>
+                    <th id="perUserTotalRecords">0</th>
+                    <th id="perUserTotalProcessedCount">0</th>
+                    <th id="perUserTotalCollected" class="amount-cell">0.00</th>
+                    <th id="perUserTotalProcessed" class="amount-cell">0.00</th>
+                    <th id="perUserTotalPending" class="amount-cell per-user-col-pending">0.00</th>
+                    <th class="per-user-col-status">—</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/processing.js"></script>
+{% endblock %}

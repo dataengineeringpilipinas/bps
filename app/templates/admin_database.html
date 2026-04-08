@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Database View{% endblock %}
+{% block topbar_title %}Database View{% endblock %}
+{% block topbar_subtitle %}Browse database tables in read-only mode.{% endblock %}
+{% block topbar_actions %}
+<a href="/admin/records" class="btn btn-secondary">Records</a>
+<a href="/admin/reconciliation" class="btn btn-secondary">Reconciliation</a>
+<a href="/admin/reports" class="btn btn-secondary">Reports</a>
+<a href="/admin/settings" class="btn btn-secondary">Admin Settings</a>
+<form method="post" action="/auth/logout" class="inline-action">
+    <button type="submit" class="btn btn-secondary">Logout</button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const form = document.getElementById("dbSelectorForm");
+    const tableSelect = document.getElementById("table");
+    const limitInput = document.getElementById("limit");
+    const searchInput = document.getElementById("dbSearch");
+    const tableBody = document.querySelector(".db-grid tbody");
+    if (!form || !tableSelect) {
+        return;
+    }
+    tableSelect.addEventListener("change", function () {
+        form.requestSubmit();
+    });
+    if (limitInput) {
+        limitInput.addEventListener("change", function () {
+            form.requestSubmit();
+        });
+    }
+    if (searchInput && tableBody) {
+        searchInput.addEventListener("input", function () {
+            const query = String(searchInput.value || "").trim().toLowerCase();
+            const rows = tableBody.querySelectorAll("tr");
+            rows.forEach(function (row) {
+                const text = row.textContent ? row.textContent.toLowerCase() : "";
+                row.style.display = text.includes(query) ? "" : "none";
+            });
+        });
+    }
+})();
+</script>
+{% endblock %}
+
+{% block content %}
+<section class="panel panel-sticky db-controls-panel">
+    <div class="panel-head">
+        <h2>Table Selector</h2>
+    </div>
+    <form id="dbSelectorForm" method="get" action="/admin/database" class="controls-grid db-selector-form">
+        <div class="field db-field-table">
+            <label for="table">Table</label>
+            <select id="table" name="table">
+                {% for key, label in table_options.items() %}
+                <option value="{{ key }}" {% if key == selected_table %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field db-field-limit">
+            <label for="limit">Max rows</label>
+            <input id="limit" type="number" name="limit" min="10" max="1000" step="10" value="{{ limit }}">
+        </div>
+        <div class="field field-actions db-field-actions">
+            <label for="dbSearch">Search rows</label>
+            <input id="dbSearch" type="search" placeholder="Type to filter visible rows">
+        </div>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>{{ table_options[selected_table] }} ({{ row_count }} rows)</h2>
+    </div>
+    <div class="table-scroll db-table-scroll">
+        <table class="display users-grid db-grid" style="width:100%">
+            <thead>
+                <tr>
+                    {% for col in columns %}
+                    <th class="{% if amount_columns and col in amount_columns %}amount-cell{% endif %}">{{ col }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% if rows %}
+                    {% for row in rows %}
+                    <tr>
+                        {% for col in columns %}
+                        {% set cell = row[col] if row[col] is not none else "—" %}
+                        <td class="{% if amount_columns and col in amount_columns %}db-amount-cell{% endif %}">
+                            {% if amount_columns and col in amount_columns and row[col] is not none %}
+                                {{ "%.2f"|format(row[col]|float) }}
+                            {% else %}
+                                {{ cell }}
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="{{ columns|length if columns else 1 }}">No rows found for this table.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import os
+import re
 import secrets
 from typing import Optional
 
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.database import get_db
-from app.models import UserAccount
+from app.models import BusinessProfile, UserAccount
 
 
 def normalize_phone(phone: str) -> str:
@@ -22,6 +23,14 @@ def validate_phone(phone: str) -> bool:
 
 def validate_pin(pin: str) -> bool:
     return pin.isdigit() and len(pin) == 4
+
+
+def validate_business_email(email: Optional[str]) -> bool:
+    cleaned = str(email or "").strip()
+    if cleaned == "":
+        return True
+    pattern = r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"
+    return re.fullmatch(pattern, cleaned) is not None
 
 
 def _weak_pin_set() -> set[str]:
@@ -121,6 +130,29 @@ async def require_admin(current_user: UserAccount = Depends(get_current_user)) -
     if current_user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access only")
     return current_user
+
+
+async def is_business_owner(db: AsyncSession, user_id: int) -> bool:
+    """True if this user is the registered owner (BusinessProfile.admin_user_id)."""
+    result = await db.execute(
+        select(BusinessProfile.id).where(BusinessProfile.admin_user_id == user_id).limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def require_owner_or_admin(
+    current_user: UserAccount = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserAccount:
+    """Admin role, or the business profile owner, may access full admin APIs and records."""
+    if current_user.role == "admin":
+        return current_user
+    if await is_business_owner(db, current_user.id):
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Business owner or admin access required",
+    )
 
 
 async def require_data_entry_access(current_user: UserAccount = Depends(get_current_user)) -> UserAccount:

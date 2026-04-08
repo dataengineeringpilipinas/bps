@@ -5,6 +5,7 @@
 {% block topbar_subtitle %}Manage business receipt information and encoder accounts.{% endblock %}
 {% block topbar_actions %}
 <a href="/admin/records" class="btn btn-secondary">Back to Records</a>
+<a href="/admin/database" class="btn btn-secondary">Database</a>
 <form method="post" action="/auth/logout" class="inline-action">
     <button type="submit" class="btn btn-secondary">Logout</button>
 </form>
@@ -18,98 +19,294 @@
 <section class="panel"><div class="alert-success">{{ success }}</div></section>
 {% endif %}
 
+{% if show_welcome_guide or needs_biller_setup %}
+<section class="panel panel-onboarding" aria-label="Setup guide">
+    {% if show_welcome_guide %}
+    <p class="panel-onboarding-lead"><strong>Welcome!</strong> You landed on Admin Settings first—complete the steps below, then you can take payments and import data.</p>
+    {% endif %}
+    {% if needs_biller_setup %}
+    <p class="alert-onboarding"><strong>Biller rules required:</strong> The entry form and bill-record CSV import only accept billers that have an <em>active</em> rule here. Import a rules CSV or add each biller manually before encoding or importing bills.</p>
+    {% endif %}
+    <h3 class="panel-onboarding-title">How to proceed</h3>
+    <ol class="setup-steps">
+        <li>Confirm your <strong>business profile</strong> below and click <strong>Save Business Details</strong> (used on receipts).</li>
+        <li>Add <strong>biller rules</strong>: use <strong>Import Biller Rules CSV</strong> (repo file <code>sample_biller_rules.csv</code> is a starter) or fill the form and <strong>Add / Update Rule</strong> for each biller.</li>
+        <li>Open <a href="/entry/form">Payment Entry</a> to encode new payments, or <a href="/admin/records">Records</a> to search, edit, and import historical bill CSVs.</li>
+    </ol>
+    {% if show_welcome_guide %}
+    <p class="panel-onboarding-foot"><a href="/admin/settings">Hide welcome message</a> (setup tips stay visible until you have at least one active biller rule).</p>
+    {% endif %}
+</section>
+{% endif %}
+
 <section class="panel">
     <div class="panel-head">
         <h2>Business Profile</h2>
     </div>
-    <form method="post" action="/admin/settings/business" class="auth-form">
-        <label>Business Name
-            <input type="text" name="business_name" value="{{ business_profile.business_name if business_profile else '' }}" required maxlength="160">
-        </label>
-        <label>Business Address
-            <textarea name="business_address" rows="2" required maxlength="255">{{ business_profile.business_address if business_profile else '' }}</textarea>
-        </label>
-        <label>Business Phone
-            <input type="text" name="business_phone" value="{{ business_profile.business_phone if business_profile else '' }}" maxlength="40">
-        </label>
-        <label>Business Email
-            <input type="email" name="business_email" value="{{ business_profile.business_email if business_profile else '' }}" maxlength="120">
-        </label>
+    <form id="businessSettingsForm" method="post" action="/admin/settings/business" class="auth-form business-settings-form">
+        <label for="settings_business_name">Business Name</label>
+        <div class="settings-input-with-check">
+            <input id="settings_business_name" type="text" name="business_name" value="{{ business_profile.business_name if business_profile else '' }}" required maxlength="160" autocomplete="section-business organization">
+            <label class="field-toggle" title="Show Business Name on receipt">
+                <input type="checkbox" name="receipt_show_business_name" {% if receipt_show_business_name %}checked{% endif %}>
+            </label>
+        </div>
+        <label for="settings_business_address">Business Address</label>
+        <div class="settings-input-with-check">
+            <textarea id="settings_business_address" name="business_address" rows="2" required maxlength="255" autocomplete="section-business street-address">{{ business_profile.business_address if business_profile else '' }}</textarea>
+            <label class="field-toggle" title="Show Business Address on receipt">
+                <input type="checkbox" name="receipt_show_business_address" {% if receipt_show_business_address %}checked{% endif %}>
+            </label>
+        </div>
+        <label for="settings_business_phone">Business Phone</label>
+        <div class="settings-input-with-check">
+            <input id="settings_business_phone" type="tel" name="business_phone" value="{{ business_profile.business_phone if business_profile else '' }}" maxlength="40" inputmode="tel" autocomplete="section-business tel">
+            <label class="field-toggle" title="Show Business Phone on receipt">
+                <input type="checkbox" name="receipt_show_business_phone" {% if receipt_show_business_phone %}checked{% endif %}>
+            </label>
+        </div>
+        <label for="settings_business_email">Business Email</label>
+        <div class="settings-input-with-check">
+            <input id="settings_business_email" type="email" name="business_email" value="{{ business_profile.business_email if business_profile else '' }}" maxlength="120" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" data-1p-ignore data-lpignore="true">
+            <label class="field-toggle" title="Show Business Email on receipt">
+                <input type="checkbox" name="receipt_show_business_email" {% if receipt_show_business_email %}checked{% endif %}>
+            </label>
+        </div>
         <label>TIN Number
-            <input type="text" name="tin_number" value="{{ business_profile.tin_number if business_profile else '' }}" maxlength="64">
+            <div class="settings-input-with-check">
+                <input type="text" name="tin_number" value="{{ business_profile.tin_number if business_profile else '' }}" maxlength="64">
+                <label class="field-toggle" title="Show TIN on receipt">
+                    <input type="checkbox" name="receipt_show_business_tin" {% if receipt_show_business_tin %}checked{% endif %}>
+                </label>
+            </div>
         </label>
         <label>Receipt Footer
-            <input type="text" name="receipt_footer" value="{{ business_profile.receipt_footer if business_profile else '' }}" maxlength="255">
-        </label>
-        <label>
-            <input type="checkbox" name="receipt_show_headings" {% if receipt_show_headings %}checked{% endif %}>
-            Show Receipt Headings/Labels
-        </label>
-        <div class="field">
-            <span><strong>Business Profile Items To Print</strong></span>
-            <div>
-                <label><input type="checkbox" name="receipt_show_business_name" {% if receipt_show_business_name %}checked{% endif %}> Business Name</label>
-                <label><input type="checkbox" name="receipt_show_business_address" {% if receipt_show_business_address %}checked{% endif %}> Business Address</label>
-                <label><input type="checkbox" name="receipt_show_business_phone" {% if receipt_show_business_phone %}checked{% endif %}> Business Phone</label>
-                <label><input type="checkbox" name="receipt_show_business_email" {% if receipt_show_business_email %}checked{% endif %}> Business Email</label>
-                <label><input type="checkbox" name="receipt_show_business_tin" {% if receipt_show_business_tin %}checked{% endif %}> TIN</label>
+            <div class="settings-input-with-check">
+                <input type="text" name="receipt_footer" value="{{ business_profile.receipt_footer if business_profile else '' }}" maxlength="255">
+                <label class="field-toggle" title="Show Receipt Footer on receipt">
+                    <input type="checkbox" name="receipt_show_footer" {% if receipt_show_footer %}checked{% endif %}>
+                </label>
             </div>
-        </div>
+        </label>
         <button type="submit" class="btn btn-primary">Save Business Details</button>
     </form>
 </section>
 
 <section class="panel">
-    <div class="panel-head">
+    <div class="panel-head panel-head-actions">
         <h2>Biller Rules</h2>
+        <button type="button" class="btn btn-secondary" id="toggleBillerRulesBtn">Show Biller Rules Table</button>
     </div>
-    <form method="post" action="/admin/settings/biller-rules" class="auth-form">
-        <label>Biller
-            <input type="text" name="biller" required maxlength="120" placeholder="e.g., MERALCO">
-        </label>
-        <label>Service Charge
-            <input type="number" name="service_charge" min="0" step="0.01" value="0">
-        </label>
-        <label>Late Charge
-            <input type="number" name="late_charge" min="0" step="0.01" value="0">
-        </label>
-        <label>Account Digits (Optional)
-            <input type="number" name="account_digits" min="1" step="1" placeholder="e.g., 13">
-        </label>
-        <label>
-            <input type="checkbox" name="is_active" checked>
-            Active
-        </label>
-        <button type="submit" class="btn btn-primary">Add / Update Rule</button>
+    <form method="post" action="/admin/settings/biller-rules/import-csv" class="inline-form" enctype="multipart/form-data" style="margin-bottom:0.8rem;">
+        <input type="file" name="file" accept=".csv" required>
+        <button type="submit" class="btn btn-secondary">Import Biller Rules CSV</button>
+        <button type="button" class="btn btn-primary" id="openBillerRuleFormBtn">Add Rule</button>
+        <span class="status-text">Headers: BILLER, SERVICE_CHARGE, CASH, GCASH, MAYA, BAYAD, BPI CREDIT CARD, BPI, LATE_CHARGE, ACCOUNT_DIGITS, IS_ACTIVE</span>
     </form>
 
-    <table class="display users-grid" style="width:100%; margin-top:0.75rem;">
-        <thead>
-            <tr>
-                <th>Biller</th>
-                <th>Service Charge</th>
-                <th>Late Charge</th>
-                <th>Account Digits</th>
-                <th>Active</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for rule in biller_rules %}
-            <tr>
-                <td>{{ rule.biller }}</td>
-                <td>{{ "{:,.2f}".format(rule.service_charge) }}</td>
-                <td>{{ "{:,.2f}".format(rule.late_charge) }}</td>
-                <td>{{ rule.account_digits if rule.account_digits else "-" }}</td>
-                <td>{{ "YES" if rule.is_active else "NO" }}</td>
-                <td>
-                    <form method="post" action="/admin/settings/biller-rules/{{ rule.id }}/delete" class="inline-action">
-                        <button type="submit" class="btn btn-danger">Delete</button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div id="billerRulesTableWrap" class="is-hidden">
+        <div class="table-scroll biller-rules-table-wrap">
+            <table id="billerRulesTable" class="display users-grid" style="width:100%; margin-top:0.75rem;">
+                <thead>
+                    <tr>
+                        <th>Biller</th>
+                        <th class="amount-cell">Service Charge</th>
+                        <th class="amount-cell">Cash</th>
+                        <th class="amount-cell">GCash</th>
+                        <th class="amount-cell">Maya</th>
+                        <th class="amount-cell">Bayad</th>
+                        <th class="amount-cell">BPI Credit Card</th>
+                        <th class="amount-cell">BPI</th>
+                        <th class="amount-cell">Late Charge</th>
+                        <th>Account Digits</th>
+                        <th>Active</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rule in biller_rules %}
+                    <tr>
+                        <td>{{ rule.biller }}</td>
+                        <td class="amount-cell">{{ "{:,.2f}".format(rule.service_charge) }}</td>
+                        <td class="amount-cell">{{ "{:,.2f}".format(rule.system_charge_cash) }}</td>
+                        <td class="amount-cell">{{ "{:,.2f}".format(rule.system_charge_gcash) }}</td>
+                        <td class="amount-cell">{{ "{:,.2f}".format(rule.system_charge_maya) }}</td>
+                        <td class="amount-cell">{{ "{:,.2f}".format(rule.system_charge_bayad) }}</td>
+                        <td class="amount-cell">{{ "{:,.2f}".format(rule.system_charge_bpi_cc) }}</td>
+                        <td class="amount-cell">{{ "{:,.2f}".format(rule.system_charge_bpi) }}</td>
+                        <td class="amount-cell">{{ "{:,.2f}".format(rule.late_charge) }}</td>
+                        <td>{{ rule.account_digits if rule.account_digits else "-" }}</td>
+                        <td>{{ "YES" if rule.is_active else "NO" }}</td>
+                        <td>
+                            <button
+                                type="button"
+                                class="btn btn-secondary edit-rule-btn"
+                                data-biller="{{ rule.biller }}"
+                                data-service-charge="{{ "{:.2f}".format(rule.service_charge) }}"
+                                data-system-charge-cash="{{ "{:.2f}".format(rule.system_charge_cash) }}"
+                                data-system-charge-gcash="{{ "{:.2f}".format(rule.system_charge_gcash) }}"
+                                data-system-charge-maya="{{ "{:.2f}".format(rule.system_charge_maya) }}"
+                                data-system-charge-bayad="{{ "{:.2f}".format(rule.system_charge_bayad) }}"
+                                data-system-charge-bpi-cc="{{ "{:.2f}".format(rule.system_charge_bpi_cc) }}"
+                                data-system-charge-bpi="{{ "{:.2f}".format(rule.system_charge_bpi) }}"
+                                data-late-charge="{{ "{:.2f}".format(rule.late_charge) }}"
+                                data-account-digits="{{ rule.account_digits if rule.account_digits else '' }}"
+                                data-is-active="{{ '1' if rule.is_active else '0' }}"
+                            >Update</button>
+                            <form method="post" action="/admin/settings/biller-rules/{{ rule.id }}/delete" class="inline-action">
+                                <button type="submit" class="btn btn-danger">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
 </section>
+
+<dialog id="billerRuleDialog" class="app-dialog">
+    <div class="app-dialog-head">
+        <h3 id="billerRuleFormTitle">Add Biller Rule</h3>
+        <button type="button" class="btn btn-ghost" id="closeBillerRuleDialogBtn">Close</button>
+    </div>
+    <form method="post" action="/admin/settings/biller-rules" class="auth-form" id="billerRuleForm">
+        <label>Biller
+            <input type="text" name="biller" id="ruleBillerInput" required maxlength="120" placeholder="e.g., MERALCO">
+        </label>
+        <label>Service Charge
+            <input type="number" name="service_charge" id="ruleServiceChargeInput" min="0" step="0.01" value="0">
+        </label>
+        <label>System Charge - Cash
+            <input type="number" name="system_charge_cash" id="ruleSystemChargeCashInput" min="0" step="0.01" value="0">
+        </label>
+        <label>System Charge - GCash
+            <input type="number" name="system_charge_gcash" id="ruleSystemChargeGcashInput" min="0" step="0.01" value="0">
+        </label>
+        <label>System Charge - Maya
+            <input type="number" name="system_charge_maya" id="ruleSystemChargeMayaInput" min="0" step="0.01" value="0">
+        </label>
+        <label>System Charge - Bayad
+            <input type="number" name="system_charge_bayad" id="ruleSystemChargeBayadInput" min="0" step="0.01" value="5.39">
+        </label>
+        <label>System Charge - BPI Credit Card
+            <input type="number" name="system_charge_bpi_cc" id="ruleSystemChargeBpiCcInput" min="0" step="0.01" value="0">
+        </label>
+        <label>System Charge - BPI
+            <input type="number" name="system_charge_bpi" id="ruleSystemChargeBpiInput" min="0" step="0.01" value="0">
+        </label>
+        <label>Late Charge
+            <input type="number" name="late_charge" id="ruleLateChargeInput" min="0" step="0.01" value="0">
+        </label>
+        <label>Account Digits (Optional)
+            <input type="number" name="account_digits" id="ruleAccountDigitsInput" min="1" step="1" placeholder="e.g., 13">
+        </label>
+        <label>
+            <input type="checkbox" name="is_active" id="ruleIsActiveInput" checked>
+            Active
+        </label>
+        <div class="topbar-actions">
+            <button type="submit" class="btn btn-primary" id="saveBillerRuleBtn">Save Rule</button>
+            <button type="button" class="btn btn-secondary" id="cancelBillerRuleBtn">Cancel</button>
+        </div>
+    </form>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    "use strict";
+
+    const openBtn = document.getElementById("openBillerRuleFormBtn");
+    const toggleTableBtn = document.getElementById("toggleBillerRulesBtn");
+    const tableWrap = document.getElementById("billerRulesTableWrap");
+    const dialog = document.getElementById("billerRuleDialog");
+    const closeDialogBtn = document.getElementById("closeBillerRuleDialogBtn");
+    const title = document.getElementById("billerRuleFormTitle");
+    const form = document.getElementById("billerRuleForm");
+    const saveBtn = document.getElementById("saveBillerRuleBtn");
+    const cancelBtn = document.getElementById("cancelBillerRuleBtn");
+    const billerInput = document.getElementById("ruleBillerInput");
+    const serviceChargeInput = document.getElementById("ruleServiceChargeInput");
+    const systemChargeCashInput = document.getElementById("ruleSystemChargeCashInput");
+    const systemChargeGcashInput = document.getElementById("ruleSystemChargeGcashInput");
+    const systemChargeMayaInput = document.getElementById("ruleSystemChargeMayaInput");
+    const systemChargeBayadInput = document.getElementById("ruleSystemChargeBayadInput");
+    const systemChargeBpiCcInput = document.getElementById("ruleSystemChargeBpiCcInput");
+    const systemChargeBpiInput = document.getElementById("ruleSystemChargeBpiInput");
+    const lateChargeInput = document.getElementById("ruleLateChargeInput");
+    const accountDigitsInput = document.getElementById("ruleAccountDigitsInput");
+    const isActiveInput = document.getElementById("ruleIsActiveInput");
+
+    if (!openBtn || !dialog || !closeDialogBtn || !form || !title || !saveBtn || !cancelBtn) {
+        return;
+    }
+
+    if (toggleTableBtn && tableWrap) {
+        toggleTableBtn.addEventListener("click", function () {
+            const visible = !tableWrap.classList.contains("is-hidden");
+            if (visible) {
+                tableWrap.classList.add("is-hidden");
+                toggleTableBtn.textContent = "Show Biller Rules Table";
+            } else {
+                tableWrap.classList.remove("is-hidden");
+                toggleTableBtn.textContent = "Hide Biller Rules Table";
+            }
+        });
+    }
+
+    function resetFormToDefault() {
+        form.reset();
+        title.textContent = "Add Biller Rule";
+        saveBtn.textContent = "Save Rule";
+        serviceChargeInput.value = "0";
+        systemChargeCashInput.value = "0";
+        systemChargeGcashInput.value = "0";
+        systemChargeMayaInput.value = "0";
+        systemChargeBayadInput.value = "5.39";
+        systemChargeBpiCcInput.value = "0";
+        systemChargeBpiInput.value = "0";
+        lateChargeInput.value = "0";
+        accountDigitsInput.value = "";
+        isActiveInput.checked = true;
+        billerInput.readOnly = false;
+    }
+
+    openBtn.addEventListener("click", function () {
+        resetFormToDefault();
+        dialog.showModal();
+        billerInput.focus();
+    });
+
+    cancelBtn.addEventListener("click", function () {
+        dialog.close();
+    });
+    closeDialogBtn.addEventListener("click", function () {
+        dialog.close();
+    });
+
+    document.querySelectorAll(".edit-rule-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            const data = btn.dataset;
+            title.textContent = "Update Biller Rule";
+            saveBtn.textContent = "Update Rule";
+            billerInput.value = data.biller || "";
+            billerInput.readOnly = true;
+            serviceChargeInput.value = data.serviceCharge || "0";
+            systemChargeCashInput.value = data.systemChargeCash || "0";
+            systemChargeGcashInput.value = data.systemChargeGcash || "0";
+            systemChargeMayaInput.value = data.systemChargeMaya || "0";
+            systemChargeBayadInput.value = data.systemChargeBayad || "0";
+            systemChargeBpiCcInput.value = data.systemChargeBpiCc || "0";
+            systemChargeBpiInput.value = data.systemChargeBpi || "0";
+            lateChargeInput.value = data.lateCharge || "0";
+            accountDigitsInput.value = data.accountDigits || "";
+            isActiveInput.checked = data.isActive === "1";
+            dialog.showModal();
+            serviceChargeInput.focus();
+        });
+    });
+})();
+</script>
 {% endblock %}

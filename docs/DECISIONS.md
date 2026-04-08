@@ -46,3 +46,227 @@ Track meaningful technical and product decisions so future changes stay consiste
 - Why: Improve data consistency for search, reporting, and receipt output.
 - Alternatives considered: preserve input casing, normalize only at display time.
 - Follow-up: Ensure new text fields are included in normalization rules.
+
+- Date: 2026-03-09
+- ID: DEC-005
+- Related task: BPS-208
+- Decision: Replace hardcoded biller charge maps with a DB-backed `biller_rules` directory managed from Admin Settings.
+- Why: New/updated billers should not require code changes and redeploys to keep charge computation accurate.
+- Alternatives considered: keep hardcoded constants, JSON config file in repo, external spreadsheet only.
+- Follow-up: Extend rules to include per-biller required field validation (BPS-203) and add import/export tooling for large rule sets.
+
+- Date: 2026-03-10
+- ID: DEC-006
+- Related task: BPS-203
+- Decision: Enforce per-biller validation by requiring an active `biller_rules` entry, enforcing configured account digit length, and applying these rules consistently in API routes, entry form UI, and CSV import.
+- Why: Payments should not be accepted for unconfigured billers or accounts that do not match the expected format, regardless of entry channel.
+- Alternatives considered: keep only generic validation (due date / amount) without biller-specific rules.
+- Follow-up: Consider richer per-biller schemas (e.g., required `cp_number` or reference formats) and bulk rule management tooling if operational needs grow.
+
+- Date: 2026-03-10
+- ID: DEC-007
+- Related task: BPS-204
+- Decision: Add an "urgent" due-status filter and view that surfaces records whose due dates are overdue or within the next 3 days, using the existing datatable and filters.
+- Why: Admins need a single prioritized view for payments that are at risk (overdue/near-due) rather than manually toggling multiple filters.
+- Alternatives considered: separate urgent-only page with custom queries; reusing only the "overdue" filter without near-due items.
+- Follow-up: Consider making the urgency window configurable and adding SLA countdown badges in the UI if operational needs increase.
+
+- Date: 2026-03-10
+- ID: DEC-008
+- Related task: BPS-205
+- Decision: (1) Keep `reference` as the auto-generated value used on customer receipts only. (2) Add `payment_reference` as a separate column set by staff when a transaction has been processed (e.g. biller/channel ref); when non-empty, the record counts as “processed” for reconciliation. (3) EOD reconciliation: collected = sum of total for date; processed = sum of total where payment_reference is set; pending = collected − processed; flag = match / short / pending. (4) Provide a Processing dashboard to update payment references and view the EOD report; optional “cash on hand” can be added later.
+- Why: Receipt reference must stay stable for customers; real processing refs come from billers/channels and are needed for reconciliation and audit.
+- Alternatives considered: reusing a single reference for both receipt and processing; reconciliation without a processed marker.
+- Follow-up: Optional cash-on-hand vs collected comparison; export of reconciliation report.
+
+- Date: 2026-03-10
+- ID: DEC-009
+- Related task: BPS-205 / operations
+- Decision: Treat `BusinessProfile.admin_user_id` as the **registered business owner**: they get the same admin-area access as `role=admin` (records, processing, settings, related APIs) even if their role is not `admin`, and `/dashboard` sends them to `/admin/records`. CSV bill-record import maps optional `payment_reference` / `payment_method` (including export-style lowercase headers) so round-tripped rows stay “processed” when those columns are present.
+- Why: Owners must see the full record set and reconciliation state; imports from app exports were losing processing metadata and showed everything as pending.
+- Alternatives considered: introduce a distinct `owner` role column; restrict owner to read-only admin views.
+- Follow-up: If multi-tenant profiles exist, scope owner checks to the correct profile row.
+
+- Date: 2026-03-31
+- ID: DEC-010
+- Related task: BPS-206
+- Decision: Implement customer lookup as a per-biller known-account index (`/api/customers`) and keep direct account lookup (`/api/customers/lookup`) for fast prefill, with encoder UI using a biller-filtered datalist on the account field.
+- Why: Encoders need faster entry with fewer typing errors; biller-scoped suggestions keep account selection relevant while preserving existing account-first workflows.
+- Alternatives considered: account-only lookup without list suggestions; separate full-screen customer search modal.
+- Follow-up: If account volume grows, add pagination and optional server-ranked search (recently used / frequency).
+
+- Date: 2026-03-31
+- ID: DEC-011
+- Related task: BPS-207
+- Decision: Use biller-level routing policy fields (`route_online_enabled`, optional `route_online_max_amount`) plus an urgency window to compute a suggested `payment_channel` (`ONLINE` or `BRANCH_MANUAL`) server-side; expose this via `/api/routing/decision` and persist the resolved channel on each record.
+- Why: Routing must be deterministic and auditable across entry and updates, while still allowing per-biller operational control without code changes.
+- Alternatives considered: hardcoded routing in frontend only; global (non-biller) routing limits; manual route tagging without a decision engine.
+- Follow-up: Add online availability signal from real channel status provider and complete scenario matrix for routing verification.
+
+- Date: 2026-03-31
+- ID: DEC-012
+- Related task: BPS-207
+- Decision: For overdue and near-due accounts (within urgency window), prioritize suggested `payment_channel=ONLINE` when online is available and enabled for the biller.
+- Why: Urgent liabilities benefit from faster posting paths; suggesting online for near/past due cases reduces late-payment risk and aligns with operations priority.
+- Alternatives considered: urgent -> branch/manual default; leave urgent behavior neutral and use amount-cap only.
+- Follow-up: Observe operational outcomes and adjust urgency window or cap precedence if edge cases appear.
+
+- Date: 2026-03-31
+- ID: DEC-013
+- Related task: BPS-207
+- Decision: Remove `route_online_enabled` and `route_online_max_amount` from biller-rule configuration and simplify route suggestion to urgency-first: urgent => `ONLINE` (if available), non-urgent => `BRANCH_MANUAL`.
+- Why: Keep operator setup simple and avoid extra policy knobs while routing behavior is still being tuned with real usage.
+- Alternatives considered: keep full per-biller routing toggles/caps; keep caps only.
+- Follow-up: Reintroduce configurable routing controls only if operations later require finer channel balancing.
+
+- Date: 2026-03-31
+- ID: DEC-014
+- Related task: BPS-209
+- Decision: Send customer confirmation as a post-submission trigger using a provider-agnostic confirmation service (`COMMS_PROVIDER`), with local stub as default; do not block record creation if messaging fails.
+- Why: Operations need immediate customer comms signal with minimal delivery risk; local stub enables safe rollout while preserving a clean integration point for real SMS/Viber providers.
+- Alternatives considered: synchronous hard-fail send on submission; channel-specific vendor SDK integration first.
+- Follow-up: Add real provider adapters, delivery retries, and customer-facing delivery status if communication volume increases.
+
+- Date: 2026-04-02
+- ID: DEC-015
+- Related task: BPS-205
+- Decision: Extend reconciliation summary to accept optional `cash_on_hand` and report `cash_variance`/`cash_flag`, while accepting both `summary_date` and `date` query params for compatibility with existing UI callers.
+- Why: Operators need a same-screen EOD cash check against collected totals; date-param compatibility avoids silent mismatches between frontend and API naming.
+- Alternatives considered: separate cash reconciliation endpoint/page; keeping date parameter strict and changing only frontend.
+- Follow-up: Add export for reconciliation summary including cash variance columns.
+
+- Date: 2026-04-02
+- ID: DEC-016
+- Related task: BPS-205 (follow-up)
+- Decision: Add a dedicated Reports tab (`/admin/reports`) with period-based reconciliation summary views: daily (by day within selected month), monthly (by month within selected year), and yearly (across all years).
+- Why: Operations needs a quick trend view beyond single-day reconciliation so admins can monitor performance over day/month/year without exporting first.
+- Alternatives considered: keep only single EOD report; generate summaries only via CSV export.
+- Follow-up: Add CSV export for report rows and biller-level breakdowns if reporting needs expand.
+
+- Date: 2026-04-03
+- ID: DEC-017
+- Related task: BPS-206 / customer portal
+- Decision: Scope customer dashboard bills by logged-in phone (`cp_number`) and support two-way dynamic account/biller filters; show bill reference to customers only when payment is already processed.
+- Why: Customers can have multiple accounts and billers under one phone; filtering by account/biller reduces confusion while avoiding exposure of pending/processing references.
+- Alternatives considered: single-account customer dashboard; always showing reference regardless of payment status.
+- Follow-up: Add client-side pagination/sorting for large bill histories and optional “view by biller only” quick chips.
+
+- Date: 2026-04-03
+- ID: DEC-018
+- Related task: Admin UX polish / BPS-205 operations
+- Decision: Simplify admin workflows by removing inline payment-ref editing from the Processing transactions table, adding KPI-first dashboard presentation, and moving biller-rule create/update into a popup form; keep receipt print controls directly beside each business-profile input and include a dedicated footer visibility toggle.
+- Why: Operators should scan status quickly and change settings with less clutter; pairing receipt toggles with their exact fields reduces configuration mistakes.
+- Alternatives considered: keep inline edit controls on processing table; keep always-visible biller-rule form; keep receipt toggles in a separate checklist section.
+- Follow-up: Add lightweight tooltips/help text for each receipt toggle and include before/after UI snapshots in docs if onboarding friction appears.
+
+- Date: 2026-04-03
+- ID: DEC-019
+- Related task: Admin operations visibility controls
+- Decision: Keep heavy admin data views on-demand by default: hide Transaction Audit Log and Biller Rules table until explicitly toggled, and add a dedicated read-only Database View page (`/admin/database`) for table inspection with sticky selector controls.
+- Why: Reduces visual clutter and load noise on routine workflows while still giving admins quick access to diagnostics and raw data when needed.
+- Alternatives considered: always-visible audit/rules tables; direct inline DB editing inside settings pages.
+- Follow-up: Add optional column-level search/export controls in Database View if investigation workflows become frequent.
+
+- Date: 2026-04-03
+- ID: DEC-020
+- Related task: BPS-205 / payment capture consistency
+- Decision: Keep `payment_reference` and `confirmation_reference` as separate persisted fields, and restrict `payment_method` to `CASH`, `GCASH`, `MAYA`, `BDO`, `BPI` in both encoder and admin record flows (validated in UI and API).
+- Why: `payment_reference` (processor/biller trace) and `confirmation_reference` (customer-provided confirmation) represent different business meanings; separating them preserves audit clarity and avoids overwriting critical references. Standardized payment-method options remove drift between forms and reports.
+- Alternatives considered: reuse one shared reference field; allow open-ended/free-text payment methods.
+- Follow-up: Add reporting/export columns that display both references side-by-side in reconciliation and audit views when needed.
+
+- Date: 2026-04-03
+- ID: DEC-021
+- Related task: BPS-205 / data-entry UX
+- Decision: Simplify entry and admin edit payment sections by removing the visible Suggested Route field and prioritizing input order as `Mode of Payment` -> `Confirmation Reference` -> amount (`cash` value field, labeled "Amount").
+- Why: Operators finalize payment details faster when the primary decision (mode) appears first and confirmation details follow immediately; hiding route suggestion removes noise from the encode flow while keeping backend routing capabilities available if needed.
+- Alternatives considered: keep suggested-route field visible; keep previous amount-first ordering.
+- Follow-up: If operators still need routing context, add a compact optional tooltip/help indicator instead of a full input row.
+
+- Date: 2026-04-03
+- ID: DEC-022
+- Related task: BPS-205 / processing controls
+- Decision: Keep `payment_channel` as an explicit persisted field entered/edited by operations (no automatic overwrite in create/update), and separate payment-method scopes by workflow: customer entry allows `CASH`, `GCASH`, `MAYA`, `BDO`, `BPI`, while admin processing/edit allows `CASH`, `GCASH`, `MAYA`, `BAYAD`, `BPI_CC`, `BPI`.
+- Why: Operations tracks actual posting routes and processing methods that can differ from customer-facing input options; preserving the encoded channel and allowing richer processing methods improves audit fidelity and reconciliation accuracy.
+- Alternatives considered: derive/force channel from payment method; use a single payment-method list for all flows.
+- Follow-up: Consider adding channel/method consistency checks or warnings (non-blocking) when operators set unusual combinations.
+
+- Date: 2026-04-03
+- ID: DEC-023
+- Related task: BPS-205 / processing auditability
+- Decision: Persist `processed_by_user_id` on bill-record create/update using the authenticated operator (`current_user.id`), and keep admin edit dropdowns explicit: `payment_method` uses customer-facing modes (`CASH`, `GCASH`, `MAYA`, `BDO`, `BPI`) while `payment_channel` uses processing channels (`CASH`, `GCASH`, `MAYA`, `BAYAD`, `BPI_CC`, `BPI`).
+- Why: Reconciliation and audit investigation require knowing exactly who last processed a record and preserving operations-specific channel labels independent from customer payment-mode input.
+- Alternatives considered: infer processor from audit log only; force channel from method or use ONLINE/BRANCH-only channel values.
+- Follow-up: Add optional backfill utility to populate `processed_by_user_id` for historical rows from audit logs if needed.
+
+- Date: 2026-04-03
+- ID: DEC-024
+- Related task: BPS-205 / reconciliation operations
+- Decision: Add daily per-user reconciliation summary grouped by `processed_by_user_id` and show it in the Reconciliation page; include user labels (`UNASSIGNED` for null processor) with per-user collected/processed/pending amounts and counts.
+- Why: Operators need accountability and workload visibility by processor without leaving the reconciliation workflow.
+- Alternatives considered: keep only overall EOD totals; require manual export/reporting for per-user analysis.
+- Follow-up: Add date-range and monthly per-user views, and optional historical backfill from audit logs for rows created before processor tracking was introduced.
+
+- Date: 2026-04-03
+- ID: DEC-025
+- Related task: BPS-203 / BPS-205 data-entry quality
+- Decision: Tighten duplicate detection normalization to prioritize `bill_amt` over computed `total` during create/update/import duplicate checks (`txn_date + account + biller + amount`).
+- Why: Computed totals can legitimately change when charge rules or due/late conditions change; using `bill_amt` as primary amount key avoids false negatives where duplicate entries bypass checks due to derived charge deltas.
+- Alternatives considered: continue using `total` as primary amount key; enforce duplicates on account/date only.
+- Follow-up: If needed, expose a duplicate-override workflow for authorized admins with explicit audit reasons.
+
+- Date: 2026-04-03
+- ID: DEC-026
+- Related task: Admin onboarding UX
+- Decision: Redesign admin registration form into structured sections (`Account Setup`, `Business Profile`) with grouped two-column layout, consistent panel styling, and clearer instructional hierarchy.
+- Why: First-time setup quality affects operational confidence; better visual structure reduces data-entry mistakes and improves perceived professionalism.
+- Alternatives considered: keep single long linear form; split setup into multiple pages.
+- Follow-up: Consider adding progressive disclosure/help hints and inline field validation states for faster onboarding.
+
+- Date: 2026-04-05
+- ID: DEC-027
+- Related task: Billing schema naming cleanup
+- Decision: Adopt `late_charge` as the canonical app/UI/API name while keeping legacy DB column `amt2` for backward-compatible writes and safe migration. Database View shows a single `late_charge` header/value and avoids duplicate `amt2` display.
+- Why: Existing databases still enforce/contain `amt2`; removing it immediately risks runtime save failures. Canonical naming is still needed to reduce operator confusion.
+- Alternatives considered: hard-drop `amt2` immediately; keep using `amt2` across all layers.
+- Follow-up: Perform a controlled SQLite table-rebuild migration later to physically remove `amt2` once all environments are validated.
+
+- Date: 2026-04-05
+- ID: DEC-028
+- Related task: Admin Database View UX
+- Decision: Remove manual "Load Table" dependency by auto-loading on table/max-rows selector changes, add in-page row search, and hide deprecated `biller_rules.route_online_max_amount` from Database View output.
+- Why: Database inspection should be faster and less cluttered for routine admin use; deprecated legacy fields should not distract operators.
+- Alternatives considered: keep manual load button only; keep showing all raw columns including deprecated fields.
+- Follow-up: Consider server-side search/filter in Database View if row limits are increased substantially.
+
+- Date: 2026-04-05
+- ID: DEC-029
+- Related task: CSV import processing defaults
+- Decision: During bill-record CSV import, initialize processing fields to operational defaults per row: `payment_method=CASH`, `payment_channel=CASH`, and fallback both `confirmation_reference` and `payment_reference` to `reference` when blank; persist `processed_by_user_id` as the authenticated importing user.
+- Why: Initial imports should represent branch-cash intake consistently and preserve a usable trace reference without requiring manual post-import cleanup.
+- Alternatives considered: leave imported processing fields as-is from source CSV; set only payment method/channel and keep references empty.
+- Follow-up: If mixed-channel historical imports become common, add an optional import mode/override flag instead of hard defaults.
+
+- Date: 2026-04-05
+- ID: DEC-030
+- Related task: Data-engineering hygiene / import traceability
+- Decision: Add immutable raw-ingest logging for bill-record CSV imports via `bill_record_import_raw`, recording `import_batch_id`, source filename, row number, imported user, ingest status (`CREATED`/`DUPLICATE`/`SKIPPED`), note, and original row JSON; keep `bill_records` as curated operational state.
+- Why: Preserve raw source-of-truth rows for auditability and reproducibility while still allowing operational defaults/computations in serving tables.
+- Alternatives considered: only keep transformed `bill_records`; save raw CSV files externally without row-level statuses.
+- Follow-up: Add batch-level inspection/filter UI and optional replay tooling from raw-ingest batches.
+
+- Date: 2026-04-05
+- ID: DEC-031
+- Related task: Customer account linkage consistency
+- Decision: Auto-link `customer_accounts.user_id` to authenticated users on successful signup/signin by phone match (plus dashboard fallback) instead of leaving linkage as mostly manual/implicit.
+- Why: Reduce orphaned customer profiles and keep customer dashboard ownership scoping consistent across sessions.
+- Alternatives considered: dashboard-only opportunistic linking; explicit manual admin linkage only.
+- Follow-up: Add guarded bulk backfill utility for historical rows and optional confidence checks for shared phone numbers.
+
+- Date: 2026-04-05
+- ID: DEC-032
+- Related task: Reconciliation & reports UX polish
+- Decision: Make reconciliation/report filters auto-refresh on selection changes and standardize per-user reconciliation table spacing/alignment (including Pending vs Status separation and total-row consistency).
+- Why: Reduce extra clicks, prevent “does not auto show” confusion, and improve readability of per-user totals during EOD checks.
+- Alternatives considered: keep manual load only; rely on default table CSS without per-column spacing/alignment tuning.
+- Follow-up: Consider sticky table footer for totals on long per-user lists.

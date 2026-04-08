@@ -11,14 +11,16 @@ from sqlmodel import select
 from app.auth import (
     get_current_user_optional,
     hash_pin,
+    is_business_owner,
     normalize_phone,
     resolve_role_from_phone,
+    validate_business_email,
     validate_phone,
     validate_pin_policy,
     verify_pin,
 )
 from app.database import get_db
-from app.models import AuthEventLog, BusinessProfile, UserAccount
+from app.models import AuthEventLog, BillRecord, BusinessProfile, Customer, UserAccount
 from app.services import get_otp_service
 
 router = APIRouter(tags=["auth"])
@@ -30,6 +32,12 @@ PIN_LOCKOUT_MINUTES = int(os.getenv("PIN_LOCKOUT_MINUTES", "15"))
 
 def _normalize_text(value: str) -> str:
     return value.strip().upper()
+
+
+def _normalize_business_email(value: str) -> Optional[str]:
+    """Strip only; do not uppercase (emails are case-insensitive but users expect normal casing)."""
+    s = (value or "").strip()
+    return s or None
 
 
 def _render_signup(
@@ -195,6 +203,29 @@ async def _log_auth_event(
         )
     )
     await db.commit()
+
+
+async def _link_customer_accounts_to_user(db: AsyncSession, user: UserAccount) -> int:
+    """Attach unlinked customer_accounts rows (same phone) to the signed-in user."""
+    if not user or not user.phone:
+        return 0
+    rows = (
+        await db.execute(
+            select(Customer)
+            .where(Customer.phone == user.phone)
+            .where(Customer.user_id.is_(None))
+            .order_by(Customer.id.asc())
+        )
+    ).scalars().all()
+    if not rows:
+        return 0
+    now = datetime.utcnow()
+    for row in rows:
+        row.user_id = user.id
+        row.updated_at = now
+        db.add(row)
+    await db.commit()
+    return len(rows)
 
 
 @router.get("/auth/signup", response_class=HTMLResponse, include_in_schema=False)
@@ -371,6 +402,7 @@ async def signup_verify_submit(
         user_id=user.id,
         detail="account_activated",
     )
+    await _link_customer_accounts_to_user(db, user)
 
     request.session.pop("pending_signup", None)
     request.session["user_id"] = user.id
@@ -635,18 +667,60 @@ async def admin_signup_submit(
 
     if not cleaned_first or not cleaned_last:
         return _render_admin_signup(
-            request, "First name and last name are required", cleaned_first, cleaned_last, phone
+            request,
+            "First name and last name are required",
+            cleaned_first,
+            cleaned_last,
+            phone,
+            business_name,
+            business_address,
+            business_phone,
+            business_email,
+            tin_number,
+            receipt_footer,
         )
     if not validate_phone(normalized_phone):
         return _render_admin_signup(
-            request, "Please enter a valid phone number", cleaned_first, cleaned_last, phone
+            request,
+            "Please enter a valid phone number",
+            cleaned_first,
+            cleaned_last,
+            phone,
+            business_name,
+            business_address,
+            business_phone,
+            business_email,
+            tin_number,
+            receipt_footer,
         )
     pin_ok, pin_error = validate_pin_policy(pin)
     if not pin_ok:
-        return _render_admin_signup(request, pin_error or "Invalid PIN", cleaned_first, cleaned_last, phone)
+        return _render_admin_signup(
+            request,
+            pin_error or "Invalid PIN",
+            cleaned_first,
+            cleaned_last,
+            phone,
+            business_name,
+            business_address,
+            business_phone,
+            business_email,
+            tin_number,
+            receipt_footer,
+        )
     if pin != pin_confirm:
         return _render_admin_signup(
-            request, "PIN entries do not match", cleaned_first, cleaned_last, phone
+            request,
+            "PIN entries do not match",
+            cleaned_first,
+            cleaned_last,
+            phone,
+            business_name,
+            business_address,
+            business_phone,
+            business_email,
+            tin_number,
+            receipt_footer,
         )
     if not cleaned_business_name:
         return _render_admin_signup(
@@ -655,8 +729,8 @@ async def admin_signup_submit(
             cleaned_first,
             cleaned_last,
             phone,
-            cleaned_business_name,
-            cleaned_business_address,
+            business_name,
+            business_address,
             business_phone,
             business_email,
             tin_number,
@@ -669,8 +743,22 @@ async def admin_signup_submit(
             cleaned_first,
             cleaned_last,
             phone,
-            cleaned_business_name,
-            cleaned_business_address,
+            business_name,
+            business_address,
+            business_phone,
+            business_email,
+            tin_number,
+            receipt_footer,
+        )
+    if not validate_business_email(business_email):
+        return _render_admin_signup(
+            request,
+            "Please enter a valid business email address",
+            cleaned_first,
+            cleaned_last,
+            phone,
+            business_name,
+            business_address,
             business_phone,
             business_email,
             tin_number,
@@ -685,8 +773,8 @@ async def admin_signup_submit(
             cleaned_first,
             cleaned_last,
             phone,
-            cleaned_business_name,
-            cleaned_business_address,
+            business_name,
+            business_address,
             business_phone,
             business_email,
             tin_number,
@@ -710,7 +798,7 @@ async def admin_signup_submit(
         business_name=cleaned_business_name,
         business_address=cleaned_business_address,
         business_phone=_normalize_text(business_phone) or None,
-        business_email=_normalize_text(business_email) or None,
+        business_email=_normalize_business_email(business_email),
         tin_number=_normalize_text(tin_number) or None,
         receipt_footer=_normalize_text(receipt_footer) or None,
     )
@@ -720,7 +808,7 @@ async def admin_signup_submit(
     await db.refresh(user)
 
     request.session["user_id"] = user.id
-    return RedirectResponse(url="/dashboard", status_code=303)
+    return RedirectResponse(url="/admin/settings?welcome=1", status_code=303)
 
 
 @router.get("/auth/signin", response_class=HTMLResponse, include_in_schema=False)
@@ -836,6 +924,7 @@ async def signin_submit(
         user_id=user.id,
         detail=f"role={resolved_role}",
     )
+    await _link_customer_accounts_to_user(db, user)
 
     request.session["user_id"] = user.id
     return RedirectResponse(url="/dashboard", status_code=303)
@@ -848,11 +937,16 @@ async def logout(request: Request):
 
 
 @router.get("/dashboard", include_in_schema=False)
-async def dashboard(current_user: Optional[UserAccount] = Depends(get_current_user_optional)):
+async def dashboard(
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[UserAccount] = Depends(get_current_user_optional),
+):
     if not current_user:
         return RedirectResponse(url="/auth/signin", status_code=303)
 
     if current_user.role == "admin":
+        return RedirectResponse(url="/admin/records", status_code=303)
+    if await is_business_owner(db, current_user.id):
         return RedirectResponse(url="/admin/records", status_code=303)
     if current_user.role == "encoder":
         return RedirectResponse(url="/entry/form", status_code=303)
@@ -862,6 +956,7 @@ async def dashboard(current_user: Optional[UserAccount] = Depends(get_current_us
 @router.get("/customer/dashboard", response_class=HTMLResponse, include_in_schema=False)
 async def customer_dashboard(
     request: Request,
+    db: AsyncSession = Depends(get_db),
     current_user: Optional[UserAccount] = Depends(get_current_user_optional),
 ):
     if not current_user:
@@ -869,13 +964,89 @@ async def customer_dashboard(
 
     if current_user.role == "admin":
         return RedirectResponse(url="/admin/records", status_code=303)
+    if await is_business_owner(db, current_user.id):
+        return RedirectResponse(url="/admin/records", status_code=303)
     if current_user.role == "encoder":
         return RedirectResponse(url="/entry/form", status_code=303)
+
+    selected_account = str(request.query_params.get("account", "")).strip().upper()
+    selected_biller = str(request.query_params.get("biller", "")).strip().upper()
+
+    await _link_customer_accounts_to_user(db, current_user)
+
+    customer_result = await db.execute(
+        select(Customer)
+        .where((Customer.user_id == current_user.id) | (Customer.phone == current_user.phone))
+        .order_by(Customer.updated_at.desc(), Customer.id.desc())
+    )
+    customer_profiles = customer_result.scalars().all()
+
+    accounts_from_profiles = {
+        str(item.account or "").strip().upper() for item in customer_profiles if str(item.account or "").strip()
+    }
+    accounts_result = await db.execute(
+        select(BillRecord.account)
+        .where(BillRecord.cp_number == current_user.phone)
+        .distinct()
+        .order_by(BillRecord.account.asc())
+    )
+    accounts_from_bills = {str(row[0] or "").strip().upper() for row in accounts_result.all() if row[0]}
+    account_options = sorted(accounts_from_profiles | accounts_from_bills)
+
+    if selected_account and selected_account not in account_options:
+        selected_account = ""
+
+    account_biller_rows = await db.execute(
+        select(BillRecord.account, BillRecord.biller)
+        .where(BillRecord.cp_number == current_user.phone)
+        .distinct()
+        .order_by(BillRecord.account.asc(), BillRecord.biller.asc())
+    )
+    account_biller_map: dict[str, list[str]] = {}
+    for account_value, biller_value in account_biller_rows.all():
+        account_key = str(account_value or "").strip().upper()
+        biller_key = str(biller_value or "").strip().upper()
+        if not account_key or not biller_key:
+            continue
+        bucket = account_biller_map.setdefault(account_key, [])
+        if biller_key not in bucket:
+            bucket.append(biller_key)
+
+    if selected_account:
+        biller_options = list(account_biller_map.get(selected_account, []))
+    else:
+        unique_billers = set()
+        for items in account_biller_map.values():
+            unique_billers.update(items)
+        biller_options = sorted(unique_billers)
+
+    if selected_biller and selected_biller not in biller_options:
+        selected_biller = ""
+
+    bills_stmt = (
+        select(BillRecord)
+        .where(BillRecord.cp_number == current_user.phone)
+        .order_by(BillRecord.txn_datetime.desc(), BillRecord.id.desc())
+        .limit(500)
+    )
+    if selected_account:
+        bills_stmt = bills_stmt.where(BillRecord.account == selected_account)
+    if selected_biller:
+        bills_stmt = bills_stmt.where(BillRecord.biller == selected_biller)
+    bills_result = await db.execute(bills_stmt)
+    bills = bills_result.scalars().all()
 
     return templates.TemplateResponse(
         "customer_dashboard.html",
         {
             "request": request,
             "current_user": current_user,
+            "customer_profiles": customer_profiles,
+            "account_options": account_options,
+            "biller_options": biller_options,
+            "account_biller_map": account_biller_map,
+            "selected_account": selected_account,
+            "selected_biller": selected_biller,
+            "bills": bills,
         },
     )
